@@ -23,7 +23,8 @@ function overlaps(a: QaIssue, b: QaIssue, slack = 1.0): boolean {
 const RELATED: Record<string, string[]> = {
   clipped_dialogue: ["clipped_word"], duplicate_footage: ["repeated_word"],
   audio_glitch: ["splice_click", "clipping_risk", "waveform_flatline", "audio_decode_error"],
-  dead_air: ["dead_air", "seam_dead_air"], caption_error: ["caption_mismatch", "caption_orphaned", "caption_overlap"],
+  dead_air: ["dead_air", "seam_dead_air"], caption_error: ["caption_mismatch", "caption_orphaned", "caption_overlap", "caption_over_face", "text_in_unsafe_zone"],
+  framing_crop: ["face_covered"], graphic_timing: ["face_covered"],
   visual_glitch: ["black_frames", "frozen_frames", "flash_frame", "decode_error", "decode_warnings"],
 };
 
@@ -37,15 +38,19 @@ export function aggregate(args: {
   technical: LayerResult;
   transcript: LayerResult;
   semantic: LayerResult;
+  /** Optional Jev still-frame layer; omitted or skipped = not part of coverage. */
+  frames?: LayerResult;
   requiredLayers?: QaLayerName[];
 }): QaReport {
   const { technical, transcript, semantic } = args;
+  const frames = args.frames ?? { status: "skipped" as const, reason: "not run", issues: [] };
   const deterministic = [...technical.issues, ...transcript.issues];
+  const checkable = [...deterministic, ...frames.issues];
 
   // Corroboration: a semantic finding matching a deterministic finding raises
   // confidence on both. Gemini-only issues stay ≤ HIGH.
   for (const sIssue of semantic.issues) {
-    for (const dIssue of deterministic) {
+    for (const dIssue of checkable) {
       if ((sIssue.category === dIssue.category || RELATED[sIssue.category]?.includes(dIssue.category)) && overlaps(sIssue, dIssue)) {
         sIssue.corroborated = true;
         dIssue.corroborated = true;
@@ -53,7 +58,7 @@ export function aggregate(args: {
     }
   }
 
-  const issues = [...deterministic, ...semantic.issues].sort(
+  const issues = [...deterministic, ...frames.issues, ...semantic.issues].sort(
     (a, b) =>
       SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity) ||
       a.timeWindow.start - b.timeWindow.start
@@ -62,11 +67,12 @@ export function aggregate(args: {
   const summary: Record<Severity, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
   for (const i of issues) summary[i.severity] += 1;
 
-  const layers = { technical, transcript, semantic };
+  const required = args.requiredLayers ?? ["technical"];
+  const layers: Record<QaLayerName, LayerResult> = { technical, transcript, semantic, frames };
   const names: QaLayerName[] = ["technical", "transcript", "semantic"];
+  if (frames.status !== "skipped" || required.includes("frames")) names.push("frames");
   const completed = names.filter((n) => !["degraded", "skipped"].includes(layers[n].status));
   const unavailable = names.filter((n) => !completed.includes(n));
-  const required = args.requiredLayers ?? ["technical"];
   const missingRequired = required.filter((n) => unavailable.includes(n));
   const coverage = { complete: unavailable.length === 0, completed, unavailable, required, missingRequired };
 
@@ -86,7 +92,7 @@ export function aggregate(args: {
     iteration: args.iteration,
     verdict,
     coverage,
-    layers: { technical, transcript, semantic },
+    layers: { technical, transcript, semantic, ...(args.frames ? { frames } : {}) },
     issues,
     summary,
   };
@@ -105,6 +111,7 @@ export function renderMarkdown(report: QaReport): string {
     layerLine("Technical (ffmpeg)", l.technical),
     layerLine("Transcript boundary", l.transcript),
     layerLine("Semantic (Gemini)", l.semantic),
+    ...(l.frames ? [layerLine("Frames (Jev)", l.frames)] : []),
     ``,
     `Severity: ${report.summary.CRITICAL} critical · ${report.summary.HIGH} high · ${report.summary.MEDIUM} medium · ${report.summary.LOW} low`,
     `Coverage: **${report.coverage.complete ? "complete" : "partial"}** — completed: ${report.coverage.completed.join(", ") || "none"}; unavailable: ${report.coverage.unavailable.join(", ") || "none"}.`,

@@ -178,7 +178,11 @@ This is a loop, not a checklist. Order matters:
    --edl <edl.json> --words <words-master.json> --words-are-output` (reel-recut lane:
    `--manifest <spec>.qa-manifest.json --words <source words>`). Read the report, open
    the inspection packets for anything HIGH, fix within the whitelist, re-render,
-   re-run; max 3 rounds. The composition preview passing is NOT evidence the render is
+   re-run; max 3 rounds. With `TYPESAFE_API_KEY` set, the same run also does the LF frame
+   checks (text in the vertical-video UI zones, a graphic over a visible face) for about a
+   cent: treat its MEDIUM hits as "open these frames", not as an automatic fix. Edits that
+   contain an AI clone of the speaker add `--likeness-ref <reference photo>` (the owner's
+   reference lives in `MASTER_CONTEXT.md`). The composition preview passing is NOT evidence the render is
    right — fonts, media, and audio can differ in the rendered file. Probe duration,
    spot-check frames extracted from the MP4 itself, and check audio levels in dB on the
    rendered file.

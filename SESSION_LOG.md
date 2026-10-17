@@ -1,5 +1,30 @@
 # SESSION LOG — Video Editor Agent
 
+## 2026-10-16 — LF frame checks in the QA engine (TypeSafe Jev)
+
+Added an optional per-frame layer to `qa:video`: overlay text inside a vertical frame's
+platform-UI zones (top 14% / bottom 26%), a pasted graphic over a visible face, caption over a
+face (LOW), and likeness against a reference photo for AI-clone edits. One Jev request per sampled
+frame (1 fps + caption/graphic midpoints, cap 90); ~$0.006–0.011 and 2–5 s per 55–90-frame reel.
+The CLI runs it when `TYPESAFE_API_KEY` is set; without the key it is skipped and not counted as
+missing coverage. New CLI flags: `--skip-frames`, `--frames-fps`, `--frames-max`, `--frames-size`,
+`--safe-zone`, `--no-face-check`, `--likeness-ref`, `--likeness-threshold`; `--require-layers`
+accepts `frames`.
+
+Calibration: 48 synthetic composites with exact truth (24/24 text-zone, 24/24 face-cover) and five
+finished 9:16 reels. Text-zone hits on the reels were real titles/captions inside the zones
+(including several already-delivered cuts); a 2% box tolerance removed line-grazing hits.
+Covered-face false alarms came from faces inside screen recordings (p 0.56–0.69) and fell below
+the 0.75 bar set from the composites (true covers 0.77+). An independent second-model review found eight edge cases, all fixed with regression tests: a few failed
+frame requests no longer produce a cached clean pass (the layer reports degraded, keeps its findings and is
+retried next run); a short caption's midpoint now wins over a nearby regular sample and the frame cap thins
+regular samples first; `--no-face-check` no longer disables likeness drift; cached findings are keyed to the
+output directory and recomputed when their evidence frames are gone; small likeness references and extreme
+aspect ratios are fitted/letterboxed to the API's 280 px minimum. Validation: 83 offline tests (82 pass, 1
+existing opt-in live skip, 0 fail; 15 frame tests), typecheck clean, scrub grep clean.
+
+Current state: pushed to main on the owner's go after the scrub hook passed. No dependency added.
+
 ## 2026-09-28 — A reviewer's ear beat two Whisper passes: read voiced-vs-fricative bands before cutting a stutter
 
 **What happened:** the previous stutter fix kept the first of three bursts as the article "a"; the reviewer heard the word start twice. A 10 ms band-energy read (energy < 1 kHz vs 3–8 kHz, numpy rfft) showed each burst is a fricative followed by a vowel, i.e. an aborted first syllable of the next word, while the article was already inside the voiced tail of the previous word. Whisper large-v3 transcribed both candidate cuts identically on isolated slices, so it cannot arbitrate this. Fixed by cutting from the end of the voiced tail to the true onset; seam verified on the render.

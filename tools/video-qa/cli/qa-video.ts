@@ -6,6 +6,10 @@
  *       --edl v916-edl.json --words v916/words-master.json [--placement manifest.json]
  *   flags: --skip-semantic  --fps N  --instructions file.txt  --words file.json
  *          --source file.mp4  --out dir  --no-cache  --json (print report JSON)
+ *   frame checks (Jev; on by default, skipped without TYPESAFE_API_KEY):
+ *          --skip-frames  --frames-fps N  --frames-max N  --frames-size PX
+ *          --safe-zone TOP,BOTTOM (fractions, default 0.14,0.26; "off" disables)
+ *          --no-face-check  --likeness-ref photo.jpg  --likeness-threshold P
  *
  * Exit codes: 0 = PASS, 1 = PASS_WITH_WARNINGS, 2 = FAIL.
  * If an agent sandbox kills Node, run with the sandbox disabled.
@@ -113,6 +117,7 @@ async function main() {
     outDir: arg("out") ? resolveFromInvoker(arg("out")!) : undefined,
     noCache: flag("no-cache"),
     requiredLayers: requiredLayers(),
+    frames: framesOptions(),
     log: (m) => console.error(m),
   });
 
@@ -124,8 +129,39 @@ function requiredLayers(): QaLayerName[] | undefined {
   const raw = arg("require-layers");
   if (raw == null) return undefined;
   const names = raw.split(",").map((s) => s.trim());
-  if (!names.length || names.some((n) => !["technical", "transcript", "semantic"].includes(n))) throw new Error("--require-layers accepts technical,transcript,semantic");
+  if (!names.length || names.some((n) => !["technical", "transcript", "semantic", "frames"].includes(n))) throw new Error("--require-layers accepts technical,transcript,semantic,frames");
   return [...new Set(names)] as QaLayerName[];
+}
+
+function num(name: string): number | undefined {
+  const raw = arg(name);
+  if (raw == null) return undefined;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) throw new Error(`--${name} needs a positive number`);
+  return v;
+}
+
+function framesOptions() {
+  if (flag("skip-frames")) return false as const;
+  const zone = arg("safe-zone");
+  let safeZone: { top: number; bottom: number } | null | undefined;
+  if (zone === "off") safeZone = null;
+  else if (zone != null) {
+    const [top, bottom] = zone.split(",").map(Number);
+    if (!(top >= 0 && top < 0.5 && bottom >= 0 && bottom < 0.5)) throw new Error("--safe-zone takes TOP,BOTTOM fractions, e.g. 0.14,0.26, or off");
+    safeZone = { top, bottom };
+  }
+  const ref = arg("likeness-ref");
+  if (ref && !existsSync(resolveFromInvoker(ref))) throw new Error(`--likeness-ref not found: ${ref}`);
+  return {
+    fps: num("frames-fps"),
+    maxFrames: num("frames-max"),
+    maxSide: num("frames-size"),
+    safeZone,
+    faceCheck: flag("no-face-check") ? false : undefined,
+    likenessRef: ref ? resolveFromInvoker(ref) : undefined,
+    likenessThreshold: num("likeness-threshold"),
+  };
 }
 
 main().catch((e) => {

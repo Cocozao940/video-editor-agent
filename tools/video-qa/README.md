@@ -11,6 +11,9 @@ CHEAP    L1  ffprobe/ffmpeg technical (blackdetect, freezedetect, flash frames,
          L2  transcript edit-boundary checks on EVERY dialogue cut
              (clipped words, duplicate phrases, seam dead-air, caption coverage,
              butt-splice clicks) + isolated seam re-probes
+         LF  TypeSafe Jev per-frame rule checks (1 fps + caption/graphic midpoints):
+             overlay text in a vertical frame's top 14% / bottom 26%, a pasted
+             graphic over a visible face, optional likeness vs a reference photo
          L3  Gemini watches AND listens to a 480p proxy (audio intact @128k),
              5fps sampling, enforced JSON schema — tells Claude WHERE to look
 EXPENSIVE L4 inspection packets: contact sheet + marked waveform + word-level
@@ -46,6 +49,9 @@ npm run qa:video -- --lane hyperframes --video out.mp4 --edl edl.json \
 # any mp4, no manifest (L1 + Gemini only):
 npm run qa:video -- --video out.mp4
 
+# also check every sampled face against a reference photo (AI-clone edits):
+npm run qa:video -- --video out.mp4 --likeness-ref reference.jpg
+
 # targeted inspection packet:
 npm run qa:inspect -- --manifest spec.qa-manifest.json --start 31.5 --end 33.0
 
@@ -61,7 +67,19 @@ npm run qa:video -- --manifest manifest.json --require-layers technical,transcri
 
 Flags: `--skip-semantic` (no Gemini), `--fps N` (Gemini sampling), `--no-cache`,
 `--instructions file.txt` (original request → given to Gemini), `--json`,
-`--out dir`, `--require-layers technical,transcript,semantic`. Exit codes: **0** PASS ·
+`--out dir`, `--require-layers technical,transcript,semantic,frames`.
+Frame checks (on by default in the CLI when `TYPESAFE_API_KEY` is set; without the key
+they are skipped and not counted as missing coverage): `--skip-frames`, `--frames-fps N`
+(default 1), `--frames-max N` (default 90), `--frames-size PX` (long side, default 1280),
+`--safe-zone TOP,BOTTOM` (default `0.14,0.26`; `off` disables; vertical video only),
+`--no-face-check`, `--likeness-ref photo.jpg`, `--likeness-threshold P` (default 0.5).
+Model: `VIDEO_QA_JEV_MODEL` (default `jev-1.14.0`, pinned because TypeSafe marks image
+input experimental). Cost ≈ 1 input token per 385 sent pixels at $0.042 per million: a
+60 s 9:16 reel at 1 fps is ~$0.007 and a few seconds wall time. Evidence frames land in
+`_qa/<stem>/frames/` (the cache is keyed to that directory and recomputes if the frames are gone). If
+any frame request fails the layer reports `degraded` (partial coverage, findings kept, retried next run). Calibration (five finished 9:16 talking-head reels plus 48 synthetic
+composites): text-zone flags matched real titles/captions in the zones; covered-face false
+alarms came from faces inside screen recordings (p 0.56–0.69) and are below the 0.75 bar. Exit codes: **0** PASS ·
 **1** PASS_WITH_WARNINGS · **2** FAIL. Missing/degraded optional checks produce a warning
 and explicit partial coverage; unavailable required checks fail. Technical is required by
 default. Skipping semantic QA remains supported and does not itself fail the run.

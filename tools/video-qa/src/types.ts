@@ -82,7 +82,7 @@ export interface EditManifest {
 
 export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
-export type IssueSource = "technical" | "transcript" | "semantic" | "inspection";
+export type IssueSource = "technical" | "transcript" | "semantic" | "frames" | "inspection";
 
 export interface SuggestedFix {
   action:
@@ -117,7 +117,8 @@ export interface QaIssue {
 }
 
 export type LayerStatus = "pass" | "warn" | "fail" | "skipped" | "degraded";
-export type QaLayerName = "technical" | "transcript" | "semantic";
+/** "frames" (Jev still-frame checks) is optional: it only counts toward coverage once it runs or is required. */
+export type QaLayerName = "technical" | "transcript" | "semantic" | "frames";
 
 export interface LayerResult {
   status: LayerStatus;
@@ -152,6 +153,7 @@ export interface QaReport {
     technical: LayerResult;
     transcript: LayerResult;
     semantic: LayerResult;
+    frames?: LayerResult;
   };
   issues: QaIssue[];
   summary: Record<Severity, number>;

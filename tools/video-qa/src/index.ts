@@ -2,6 +2,7 @@
  * video-qa orchestrator — the four-layer funnel, cheap → expensive:
  *   1. ffmpeg/ffprobe technical QA (video + audio)      — always
  *   2. transcript edit-boundary QA                       — always (degrades)
+ *   F. Jev still-frame rule checks (safe zone, face)     — when enabled + key set
  *   3. Gemini whole-video watch+listen                   — unless skipped/no key
  *   4. targeted inspection packets                       — for issues that need eyes
  *
@@ -16,6 +17,8 @@ import { sha256File, sha256Text } from "./ffmpeg";
 import { runTechnicalLayer, DEFAULT_THRESHOLDS, type Thresholds } from "./layer1-technical";
 import { runTranscriptLayer, DEFAULT_L2_OPTIONS, type L2Options } from "./layer2-transcript";
 import { runSemanticLayer } from "./layer3-semantic";
+import { runFramesLayer, DEFAULT_FRAMES, type FramesOptions } from "./layer-frames";
+import { jevKey, jevModel } from "./jev";
 import { inspectWindow } from "./inspect";
 import { aggregate, writeReport } from "./report";
 import { cacheGet, cacheKey, cachePut } from "./cache";
@@ -43,11 +46,15 @@ export interface RunQaOptions {
   requiredLayers?: QaLayerName[];
   technicalThresholds?: Partial<Thresholds>;
   transcriptOptions?: L2Options;
+  /** Jev still-frame checks (platform-UI text zones, covered faces, optional likeness).
+   *  Off unless set here; the qa:video CLI turns it on by default. Skips without TYPESAFE_API_KEY. */
+  frames?: false | Omit<FramesOptions, "evidenceDir" | "log" | "ask">;
   /** Dependency injection for offline regression tests and alternate backends. */
   runners?: Partial<{
     technical: typeof runTechnicalLayer;
     transcript: typeof runTranscriptLayer;
     semantic: typeof runSemanticLayer;
+    frames: typeof runFramesLayer;
   }>;
 }
 
@@ -96,10 +103,11 @@ export async function runQa(opts: RunQaOptions): Promise<{ report: QaReport; out
     layer: string,
     model: string | undefined,
     fn: () => Promise<LayerResult>,
-    config: unknown
+    config: unknown,
+    readCache = true
   ): Promise<LayerResult> => {
     const key = cacheKey({ videoSha, manifestSha, layer, model, config });
-    if (!opts.noCache) {
+    if (!opts.noCache && readCache) {
       try {
       const hit = cacheGet(key);
       if (hit && hit.status !== "degraded" && hit.status !== "skipped") {
@@ -135,6 +143,22 @@ export async function runQa(opts: RunQaOptions): Promise<{ report: QaReport; out
     `[qa] Transcript boundary check ${transcript.status}: ${(transcript.stats?.dialogueCuts as number) ?? 0} dialogue cuts analyzed, ${transcript.issues.length} issues`
   );
 
+  let frames: LayerResult | undefined;
+  if (opts.frames) {
+    const f = opts.frames;
+    const unreadable = technical.issues.some((i) => ["corrupt_file", "missing_video_stream"].includes(i.category));
+    const likenessSha = f.likenessRef && existsSync(f.likenessRef) ? await sha256File(f.likenessRef) : f.likenessRef ?? null;
+    const evidenceDir = join(outDir, "frames");
+    // Cached findings point at evidence frames on disk: key the cache to this output directory, and recompute
+    // when the frames are gone (a deleted or fresh _qa dir) instead of returning dangling paths.
+    const evidencePresent = existsSync(join(evidenceDir, "probe-frame.jpg"));
+    frames = unreadable
+      ? { status: "skipped", reason: "Video could not be read", issues: [] }
+      : await runLayer("LF", jevModel(), () => (opts.runners?.frames ?? runFramesLayer)(manifest, { ...f, evidenceDir, log }),
+        { ...DEFAULT_FRAMES, ...f, likenessRef: likenessSha, evidenceDir, available: Boolean(jevKey() || opts.runners?.frames) }, evidencePresent);
+    log(`[qa] Frame checks ${frames.status}${frames.reason ? ` (${frames.reason})` : ""}: ${frames.issues.length} issues`);
+  }
+
   let semantic: LayerResult;
   if (opts.skipSemantic) {
     semantic = { status: "skipped", reason: "--skip-semantic", issues: [] };
@@ -158,6 +182,7 @@ export async function runQa(opts: RunQaOptions): Promise<{ report: QaReport; out
     technical,
     transcript,
     semantic,
+    frames,
     requiredLayers: opts.requiredLayers,
   });
 

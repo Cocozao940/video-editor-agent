@@ -105,6 +105,20 @@ runs offline fixtures, source-order/occurrence checks, cache/coverage tests and 
 regressions. Live transcription tests require explicit opt-in. Each layer is isolated so an
 optional backend failure does not discard the technical report; incomplete results are not cached.
 
+**LF frame checks (2026-10-16).** `src/layer-frames.ts` + `src/jev.ts` (fetch-based TypeSafe
+client, multipart images, `TypeSafe-Danger-Zone-Images` header, model pinned by
+`VIDEO_QA_JEV_MODEL`, default `jev-1.14.0`). Samples 1 fps plus caption/graphic midpoints (cap
+90), asks one request per frame: overlay text in a vertical frame's top 14% / bottom 26% (two
+yes/no answers plus a text box more than 2% into a zone), a pasted graphic over a visible face
+(p ≥ 0.75), caption over a face (LOW), and optional likeness against `--likeness-ref`. Runs of
+flagged frames become anchored MEDIUM issues with evidence frames in `_qa/<stem>/frames/`. The CLI
+runs it by default; `runQa()` only when `frames` is passed. Without `TYPESAFE_API_KEY` it skips
+and is not counted as missing coverage; a degraded run warns (any failed frame request makes the
+layer degraded, keeps its findings and is not cached); `--require-layers frames` makes it mandatory.
+Event midpoints win over nearby regular samples and survive the frame cap. The layer cache is keyed to
+the output directory and ignored when its evidence frames are missing. Offline tests inject the client
+(`src/__tests__/layer-frames.test.ts`).
+
 `qa:storyboard` takes a storyboard JSON, composition HTML and optional render. It checks
 stable IDs and absolute `data-start`/`data-duration`/`data-end` schedules, then samples the
 actual video into per-element contact sheets. Static coverage never implies verified rendered
